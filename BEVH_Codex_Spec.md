@@ -440,6 +440,7 @@ Implement a fixed-size FIFO event queue.
 typedef struct {
     bevh_event_t *buffer;
     bevh_count_t capacity;
+    bevh_count_t mask;
     volatile bevh_count_t head;
     volatile bevh_count_t tail;
     volatile bevh_count_t count;
@@ -482,6 +483,8 @@ uint32_t bevh_event_queue_overflow_count(const bevh_event_queue_t *q);
 
 - No dynamic allocation.
 - No blocking.
+- Queue capacity must be a power of two.
+- Queue objects must be zero-initialized before the first init call.
 - If queue is full, increment `overflow_count` and return `BEVH_ERR_FULL`.
 - `push_isr` must be safe to call from ISR.
 - `pop` is intended for main context.
