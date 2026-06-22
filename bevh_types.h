@@ -72,6 +72,15 @@ typedef uint16_t bevh_event_id_t;
 typedef uint16_t bevh_source_id_t;
 
 /**
+ * @typedef bevh_timer_id_t
+ * @brief Identifier for a software timer within one BEVH timer manager.
+ *
+ * Timer IDs are application-defined and only need to be unique within a single
+ * @c bevh_timer_mgr_t instance.
+ */
+typedef uint16_t bevh_timer_id_t;
+
+/**
  * @typedef bevh_count_t
  * @brief Small count and capacity type used by fixed-size BEVH containers.
  *

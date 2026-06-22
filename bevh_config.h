@@ -119,6 +119,23 @@ extern "C" {
 #endif
 
 /**
+ * @def BEVH_TIMER_MAX_CATCHUP_EVENTS
+ * @brief Maximum expiration events posted per periodic timer per tick call.
+ *
+ * When a periodic timer is advanced by a large elapsed tick value, more than one
+ * period may have expired. This limit bounds how many events one timer may post
+ * during a single bevh_timer_tick() call. Extra expirations are coalesced and
+ * tracked by the timer implementation.
+ *
+ * The value must be greater than zero. A value of 1 keeps queue pressure low by
+ * posting at most one event per timer per tick call. Larger values reduce
+ * catch-up latency but can fill the event queue faster.
+ */
+#ifndef BEVH_TIMER_MAX_CATCHUP_EVENTS
+#define BEVH_TIMER_MAX_CATCHUP_EVENTS 4u
+#endif
+
+/**
  * @def BEVH_RUN_MAX_EVENTS_PER_CALL
  * @brief Maximum number of events processed by bevh_run() per call.
  *

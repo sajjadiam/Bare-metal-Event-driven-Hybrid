@@ -231,6 +231,7 @@ Define framework-wide primitive types:
 ```c
 typedef uint16_t bevh_event_id_t;
 typedef uint16_t bevh_source_id_t;
+typedef uint16_t bevh_timer_id_t;
 typedef uint16_t bevh_count_t;
 typedef uint32_t bevh_tick_t;
 typedef uint32_t bevh_param_t;
@@ -584,15 +585,31 @@ This is not a hardware timer driver. It must be driven by the application callin
 
 ```c
 typedef struct {
-    uint16_t id;
+    bevh_timer_id_t id;
     bevh_tick_t remaining_ticks;
     bevh_tick_t period_ticks;
     bevh_event_id_t event_id;
     bevh_source_id_t source;
     bevh_param_t param;
+    void *data;
+    uint32_t missed_count;
     bool periodic;
     bool active;
 } bevh_timer_t;
+```
+
+## Required Timer Config Type
+
+```c
+typedef struct {
+    bevh_timer_id_t timer_id;
+    bevh_tick_t delay_ticks;
+    bool periodic;
+    bevh_event_id_t event_id;
+    bevh_source_id_t source;
+    bevh_param_t param;
+    void *data;
+} bevh_timer_config_t;
 ```
 
 ## Required Timer Manager Type
@@ -615,18 +632,13 @@ bevh_status_t bevh_timer_mgr_init(bevh_timer_mgr_t *mgr,
                                   bevh_event_queue_t *queue);
 
 bevh_status_t bevh_timer_start(bevh_timer_mgr_t *mgr,
-                               uint16_t timer_id,
-                               bevh_tick_t delay_ticks,
-                               bool periodic,
-                               bevh_event_id_t event_id,
-                               bevh_source_id_t source,
-                               bevh_param_t param);
+                               const bevh_timer_config_t *cfg);
 
 bevh_status_t bevh_timer_stop(bevh_timer_mgr_t *mgr,
-                              uint16_t timer_id);
+                              bevh_timer_id_t timer_id);
 
 bevh_status_t bevh_timer_restart(bevh_timer_mgr_t *mgr,
-                                 uint16_t timer_id);
+                                 bevh_timer_id_t timer_id);
 
 void bevh_timer_tick(bevh_timer_mgr_t *mgr,
                      bevh_tick_t elapsed_ticks);

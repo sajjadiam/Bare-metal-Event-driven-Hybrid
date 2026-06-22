@@ -1,8 +1,50 @@
 #include "bevh_event_queue.h"
-#include "bevh_types.h"
-#include <stdbool.h>
 
+static bool bevh_event_queue_critical_is_valid(const bevh_event_queue_t *q) {
+#if BEVH_ENABLE_CRITICAL
+    return bevh_critical_is_valid(&q->critical);
+#else
+    BEVH_UNUSED(q);
+    return false;
+#endif
+}
+static bevh_status_t bevh_event_queue_validate_critical(const bevh_event_queue_t *q) {
+#if BEVH_ENABLE_CRITICAL && !BEVH_ALLOW_NULL_CRITICAL
+    if(!bevh_event_queue_critical_is_valid(q)) {
+        return BEVH_ERR_INVALID_CONFIG;
+    }
+#else
+    BEVH_UNUSED(q);
+#endif
 
+    return BEVH_OK;
+}
+static bevh_critical_state_t bevh_event_queue_lock(bevh_event_queue_t *q) {
+#if BEVH_ENABLE_CRITICAL
+    if(bevh_critical_is_valid(&q->critical)) {
+        return bevh_critical_enter(&q->critical);
+    }
+#endif
+
+    BEVH_UNUSED(q);
+    return 0u;
+}
+static void bevh_event_queue_unlock(bevh_event_queue_t *q, bevh_critical_state_t state) {
+#if BEVH_ENABLE_CRITICAL
+    if(bevh_critical_is_valid(&q->critical)) {
+        bevh_critical_exit(&q->critical, state);
+        return;
+    }
+#endif
+
+    BEVH_UNUSED(q);
+    BEVH_UNUSED(state);
+}
+static void bevh_event_queue_reset_indexes(bevh_event_queue_t *q) {
+    q->head = 0u;
+    q->tail = 0u;
+    q->count = 0u;
+}
 bevh_status_t bevh_event_queue_init(bevh_event_queue_t *q,
                                     bevh_event_t *buffer,
                                     bevh_count_t capacity,
@@ -20,6 +62,7 @@ bevh_status_t bevh_event_queue_init(bevh_event_queue_t *q,
         return BEVH_ERR_INVALID_ARG;
     }
 
+#if BEVH_ENABLE_CRITICAL
 #if BEVH_ALLOW_NULL_CRITICAL
     if(critical != NULL) {
         if((critical->enter == NULL) || (critical->exit == NULL)) {
@@ -43,12 +86,18 @@ bevh_status_t bevh_event_queue_init(bevh_event_queue_t *q,
 
     q->critical = *critical;
 #endif
+#else
+    BEVH_UNUSED(critical);
+    q->critical.enter = NULL;
+    q->critical.exit = NULL;
+    q->critical.user = NULL;
+#endif
 
     q->buffer = buffer;
     q->capacity = capacity;
     q->mask = (bevh_count_t)(capacity - 1u);
 
-    bevh_event_queue_clear(q);
+    bevh_event_queue_reset_indexes(q);
     q->overflow_count = 0u;
     q->max_used = 0u;
 
@@ -63,13 +112,15 @@ bool bevh_event_queue_is_full(const bevh_event_queue_t *q) {
     return (q != NULL) && q->initialized && (q->count == q->capacity);
 }
 void bevh_event_queue_clear(bevh_event_queue_t *q) {
-    if(q == NULL) {
+    if((q == NULL) || (!q->initialized)) {
         return;
     }
 
-    q->head = 0u;
-    q->tail = 0u;
-    q->count = 0u;
+    bevh_critical_state_t state = bevh_event_queue_lock(q);
+
+    bevh_event_queue_reset_indexes(q);
+
+    bevh_event_queue_unlock(q, state);
 }
 bevh_count_t bevh_event_queue_count(const bevh_event_queue_t *q) {
     if((q == NULL) || (!q->initialized)) {
@@ -99,37 +150,17 @@ bevh_count_t bevh_event_queue_max_used(const bevh_event_queue_t *q) {
 
     return q->max_used;
 }
-bevh_status_t bevh_event_push(bevh_event_queue_t *q, const bevh_event_t *event) {
-    bevh_critical_state_t state;
-
-    if((q == NULL) || (event == NULL)) {
-        return BEVH_ERR_NULL;
+static bevh_status_t bevh_event_queue_push_common(bevh_event_queue_t *q, const bevh_event_t *event) {
+    bevh_status_t  status = bevh_event_queue_validate_critical(q);
+    if(status != BEVH_OK) {
+        return status;
     }
 
-    if(!q->initialized) {
-        return BEVH_ERR_NOT_INITIALIZED;
-    }
-
-#if BEVH_ENABLE_CRITICAL
-    if(bevh_critical_is_valid(&q->critical)) {
-        state = bevh_critical_enter(&q->critical);
-    } 
-    else {
-        state = 0u;
-    }
-#else
-    state = 0u;
-#endif
+    bevh_critical_state_t state = bevh_event_queue_lock(q);
 
     if(q->count == q->capacity) {
         q->overflow_count++;
-
-#if BEVH_ENABLE_CRITICAL
-        if(bevh_critical_is_valid(&q->critical)) {
-            bevh_critical_exit(&q->critical, state);
-        }
-#endif
-
+        bevh_event_queue_unlock(q, state);
         return BEVH_ERR_FULL;
     }
 
@@ -141,20 +172,58 @@ bevh_status_t bevh_event_push(bevh_event_queue_t *q, const bevh_event_t *event) 
         q->max_used = q->count;
     }
 
-#if BEVH_ENABLE_CRITICAL
-    if(bevh_critical_is_valid(&q->critical)) {
-        bevh_critical_exit(&q->critical, state);
-    }
-#else
-    BEVH_UNUSED(state);
-#endif
+    bevh_event_queue_unlock(q, state);
 
     return BEVH_OK;
+}
+bevh_status_t bevh_event_push(bevh_event_queue_t *q, const bevh_event_t *event) {
+    if((q == NULL) || (event == NULL)) {
+        return BEVH_ERR_NULL;
+    }
+
+    if(!q->initialized) {
+        return BEVH_ERR_NOT_INITIALIZED;
+    }
+
+    return bevh_event_queue_push_common(q, event);
 }
 bevh_status_t bevh_event_push_isr(bevh_event_queue_t *q, const bevh_event_t *event) {
+    if((q == NULL) || (event == NULL)) {
+        return BEVH_ERR_NULL;
+    }
 
-    return BEVH_OK;
+    if(!q->initialized) {
+        return BEVH_ERR_NOT_INITIALIZED;
+    }
+
+    return bevh_event_queue_push_common(q, event);
 }
 bevh_status_t bevh_event_pop(bevh_event_queue_t *q, bevh_event_t *event) {
+    if((q == NULL) || (event == NULL)) {
+        return BEVH_ERR_NULL;
+    }
+
+    if(!q->initialized) {
+        return BEVH_ERR_NOT_INITIALIZED;
+    }
+
+    bevh_status_t  status = bevh_event_queue_validate_critical(q);
+    if(status != BEVH_OK) {
+        return status;
+    }
+
+    bevh_critical_state_t state = bevh_event_queue_lock(q);
+
+    if(q->count == 0U) {
+        bevh_event_queue_unlock(q, state);
+        return BEVH_ERR_EMPTY;
+    }
+
+    *event = q->buffer[q->tail];
+    q->tail = (bevh_count_t)((q->tail + 1u) & q->mask);
+    q->count--;
+
+    bevh_event_queue_unlock(q, state);
+
     return BEVH_OK;
 }
