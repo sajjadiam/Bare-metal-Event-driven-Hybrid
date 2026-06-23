@@ -12,11 +12,11 @@
  * Expired timers post events into a BEVH event queue. Timer callbacks are not
  * called directly by this module.
  *
- * Periodic timers use bounded catch-up. If a large elapsed tick value spans
- * multiple periods, a timer may post up to @ref BEVH_TIMER_MAX_CATCHUP_EVENTS
- * expiration events during one @ref bevh_timer_tick call. Additional elapsed
- * periods are coalesced and tracked in the timer object rather than flooding the
- * event queue.
+ * Periodic timers use configurable catch-up behavior. If
+ * @ref BEVH_TIMER_ENABLE_CATCHUP is 0, each periodic timer posts at most one
+ * event per @ref bevh_timer_tick call and coalesces extra elapsed periods into
+ * missed-count state. If catch-up is enabled, each periodic timer may post up to
+ * @ref BEVH_TIMER_MAX_CATCHUP_EVENTS events per tick call.
  *
  * This module is suitable for cooperative timing such as communication
  * timeouts, retry delays, UI refresh, diagnostics, and slow monitoring. It is
@@ -37,6 +37,15 @@ extern "C" {
 #include "bevh_types.h"
 
 /**
+ * @def BEVH_TIMER_ID_NONE
+ * @brief Invalid or unused timer identifier.
+ *
+ * Timer slots reset to this ID during manager initialization. Applications
+ * should not use this value as a real timer ID.
+ */
+#define BEVH_TIMER_ID_NONE    ((bevh_timer_id_t)0u)
+
+/**
  * @struct bevh_timer_t
  * @brief One cooperative software timer object.
  *
@@ -48,7 +57,8 @@ typedef struct {
     /**
      * @brief Application-defined timer identifier.
      *
-     * Timer IDs are unique within one timer manager.
+     * Timer IDs are unique within one timer manager. A cleared or unused timer
+     * slot has @ref BEVH_TIMER_ID_NONE.
      */
     bevh_timer_id_t id;
 
@@ -93,22 +103,27 @@ typedef struct {
     void *data;
 
     /**
-     * @brief Number of elapsed periodic expirations coalesced by catch-up limit.
+     * @brief Number of elapsed periodic expirations coalesced by timer policy.
      *
-     * When more periods elapsed than the implementation is allowed to post in
-     * one @ref bevh_timer_tick call, the extra expirations are accumulated here.
-     * This is diagnostic/state information for the timer manager; applications
-     * should read it only through future accessor APIs if needed.
+     * When more periods elapsed than the configured timer policy is allowed to
+     * post in one @ref bevh_timer_tick call, the extra expirations are
+     * accumulated here. This is diagnostic/state information for the timer
+     * manager; applications should read it only through future accessor APIs if
+     * needed.
      */
     uint32_t missed_count;
 
     /**
      * @brief True for periodic timers, false for one-shot timers.
+     *
+     * A cleared or unused timer slot sets this field to false.
      */
     bool periodic;
 
     /**
      * @brief True while the timer is running.
+     *
+     * A cleared, stopped, or unused timer slot sets this field to false.
      */
     bool active;
 } bevh_timer_t;
@@ -123,6 +138,8 @@ typedef struct {
 typedef struct {
     /**
      * @brief Application-defined timer identifier.
+     *
+     * Must not be @ref BEVH_TIMER_ID_NONE.
      */
     bevh_timer_id_t timer_id;
 
@@ -130,6 +147,7 @@ typedef struct {
      * @brief Delay before expiration in application-defined ticks.
      *
      * Must be nonzero unless @ref BEVH_TIMER_ALLOW_ZERO_DELAY is enabled.
+     * Zero-delay periodic timers are always invalid.
      */
     bevh_tick_t delay_ticks;
 
@@ -220,8 +238,9 @@ bevh_status_t bevh_timer_mgr_init(bevh_timer_mgr_t *mgr, bevh_timer_t *timers, b
 /**
  * @brief Start or reconfigure a timer.
  *
- * If a timer with @c cfg->timer_id already exists in the manager, it is overwritten
- * with the new configuration. Otherwise an unused timer slot is allocated.
+ * If a timer with @c cfg->timer_id already exists in the manager, it is
+ * overwritten with the new configuration. Otherwise an unused timer slot is
+ * allocated.
  *
  * When the timer expires, the manager posts an event using the event fields
  * stored in @p cfg into the configured event queue.
@@ -232,8 +251,10 @@ bevh_status_t bevh_timer_mgr_init(bevh_timer_mgr_t *mgr, bevh_timer_t *timers, b
  * @retval BEVH_OK Timer was started.
  * @retval BEVH_ERR_NULL @p mgr or @p cfg was NULL.
  * @retval BEVH_ERR_NOT_INITIALIZED @p mgr was not initialized.
- * @retval BEVH_ERR_INVALID_ARG @c cfg->delay_ticks was zero when zero-delay
- *         timers are disabled, or @c cfg->event_id was @ref BEVH_EVENT_NONE.
+ * @retval BEVH_ERR_INVALID_ARG @c cfg->timer_id was @ref BEVH_TIMER_ID_NONE,
+ *         @c cfg->delay_ticks was zero when zero-delay timers are disabled,
+ *         @c cfg requested a zero-delay periodic timer, or @c cfg->event_id was
+ *         @ref BEVH_EVENT_NONE.
  * @retval BEVH_ERR_FULL No free timer slot was available.
  */
 bevh_status_t bevh_timer_start(bevh_timer_mgr_t *mgr, const bevh_timer_config_t *cfg);
@@ -279,11 +300,18 @@ bevh_status_t bevh_timer_restart(bevh_timer_mgr_t *mgr, bevh_timer_id_t timer_id
  * It does not call event handlers directly. If posting to the event queue fails
  * because the queue is full, this function does not block.
  *
- * Periodic timers use bounded catch-up. If @p elapsed_ticks covers multiple
- * periods, each periodic timer may post at most
- * @ref BEVH_TIMER_MAX_CATCHUP_EVENTS events during this call. Extra elapsed
- * periods are coalesced into the timer's missed-count state so queue pressure
- * remains bounded.
+ * The timer manager does not contain its own critical-section protection.
+ * Calls that modify the same timer manager, including @ref bevh_timer_tick,
+ * @ref bevh_timer_start, @ref bevh_timer_stop, and @ref bevh_timer_restart,
+ * must be made from one execution context or externally protected by the
+ * application. Do not call this function from an ISR while modifying the same
+ * manager from the main loop unless the application provides that protection.
+ *
+ * Periodic timers use configurable catch-up behavior. If
+ * @ref BEVH_TIMER_ENABLE_CATCHUP is 0, each periodic timer posts at most one
+ * event during this call; additional elapsed periods are coalesced into the
+ * timer's missed-count state. If catch-up is enabled, each periodic timer may
+ * post up to @ref BEVH_TIMER_MAX_CATCHUP_EVENTS events during this call.
  *
  * A one-shot timer posts at most one event and then becomes inactive.
  *

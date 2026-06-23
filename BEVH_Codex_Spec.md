@@ -312,9 +312,38 @@ All settings must be override-friendly:
 #ifndef BEVH_ENABLE_CRITICAL
 #define BEVH_ENABLE_CRITICAL 1u
 #endif
+
+#ifndef BEVH_DISPATCH_MISSING_HANDLER_IS_ERROR
+#define BEVH_DISPATCH_MISSING_HANDLER_IS_ERROR 0u
+#endif
+
+#ifndef BEVH_ALLOW_NULL_CRITICAL
+#define BEVH_ALLOW_NULL_CRITICAL 0u
+#endif
+
+#ifndef BEVH_TIMER_ALLOW_ZERO_DELAY
+#define BEVH_TIMER_ALLOW_ZERO_DELAY 0u
+#endif
+
+#ifndef BEVH_TIMER_ENABLE_CATCHUP
+#define BEVH_TIMER_ENABLE_CATCHUP 0u
+#endif
+
+#ifndef BEVH_TIMER_MAX_CATCHUP_EVENTS
+#define BEVH_TIMER_MAX_CATCHUP_EVENTS 4u
+#endif
+
+#ifndef BEVH_RUN_MAX_EVENTS_PER_CALL
+#define BEVH_RUN_MAX_EVENTS_PER_CALL 0u
+#endif
 ```
 
 No MCU-specific configuration belongs here.
+
+`BEVH_EVENT_QUEUE_SIZE` must be a power of two because the queue implementation
+uses mask-based index wrapping. `BEVH_RUN_MAX_EVENTS_PER_CALL == 0u` means
+`bevh_run()` drains the queue and returns when it becomes empty; a nonzero value
+bounds the amount of event work per call.
 
 ---
 
@@ -546,6 +575,10 @@ bevh_status_t bevh_dispatcher_subscribe(bevh_dispatcher_t *d,
                                         bevh_event_handler_t handler,
                                         void *user);
 
+bevh_status_t bevh_dispatcher_subscribe_table(bevh_dispatcher_t *d,
+                                              const bevh_handler_entry_t *table,
+                                              bevh_count_t count);
+
 bevh_status_t bevh_dispatcher_unsubscribe(bevh_dispatcher_t *d,
                                           bevh_event_id_t event_id,
                                           bevh_event_handler_t handler,
@@ -553,16 +586,22 @@ bevh_status_t bevh_dispatcher_unsubscribe(bevh_dispatcher_t *d,
 
 bevh_status_t bevh_dispatcher_dispatch(bevh_dispatcher_t *d,
                                        const bevh_event_t *event);
+
+bevh_count_t bevh_dispatcher_count(const bevh_dispatcher_t *d);
+
+bevh_count_t bevh_dispatcher_capacity(const bevh_dispatcher_t *d);
 ```
 
 ## Required Behavior
 
 - Multiple handlers may subscribe to the same event ID.
+- A static application handler table may be loaded into the runtime dispatcher buffer with `bevh_dispatcher_subscribe_table()`.
 - Dispatch must call all matching handlers.
 - If no handler exists, return `BEVH_ERR_NOT_FOUND` or `BEVH_OK` depending on a config macro. Default should be `BEVH_OK` to avoid unnecessary failures.
 - Dispatcher must not contain project logic.
 - Dispatcher must not block.
 - Dispatcher must not modify the event.
+- Dispatcher initialization owns a mutable runtime handler buffer; it must not keep a pointer to an application `const` route table.
 
 ---
 
@@ -582,6 +621,10 @@ Implement cooperative software timers that generate events when they expire.
 This is not a hardware timer driver. It must be driven by the application calling `bevh_timer_tick()` or `bevh_tick()` from a periodic interrupt or main loop timebase.
 
 ## Required Timer Type
+
+```c
+#define BEVH_TIMER_ID_NONE    ((bevh_timer_id_t)0u)
+```
 
 ```c
 typedef struct {
@@ -642,6 +685,14 @@ bevh_status_t bevh_timer_restart(bevh_timer_mgr_t *mgr,
 
 void bevh_timer_tick(bevh_timer_mgr_t *mgr,
                      bevh_tick_t elapsed_ticks);
+
+bool bevh_timer_is_active(const bevh_timer_mgr_t *mgr,
+                          bevh_timer_id_t timer_id);
+
+bevh_tick_t bevh_timer_remaining(const bevh_timer_mgr_t *mgr,
+                                 bevh_timer_id_t timer_id);
+
+bevh_count_t bevh_timer_capacity(const bevh_timer_mgr_t *mgr);
 ```
 
 ## Required Behavior
@@ -649,9 +700,16 @@ void bevh_timer_tick(bevh_timer_mgr_t *mgr,
 - When a timer expires, it posts an event to the event queue.
 - One-shot timers deactivate after expiration.
 - Periodic timers reload automatically.
+- Timer IDs are application-defined values. They are not array indexes.
+- `BEVH_TIMER_ID_NONE` is reserved for invalid or unused timer slots.
+- If catch-up is disabled, each periodic timer posts at most one event per tick call.
+- If catch-up is enabled, each periodic timer posts at most `BEVH_TIMER_MAX_CATCHUP_EVENTS` events per tick call.
+- Extra elapsed periods must be accumulated in `missed_count`, not posted without bound.
 - If event posting fails because the queue is full, the timer manager must not block.
 - Timers must not call event handlers directly.
 - Software timers must not be used for hard real-time operations.
+- Zero-delay timers are rejected by default. If `BEVH_TIMER_ALLOW_ZERO_DELAY` is enabled, zero-delay one-shot timers may be allowed, but zero-delay periodic timers must still be rejected to avoid an event storm.
+- The timer manager has no internal critical section. Calls that modify the same manager must come from one execution context or be protected externally by the application.
 
 ## Explicit Warning for Documentation
 
@@ -681,15 +739,6 @@ typedef struct {
     bevh_event_queue_t queue;
     bevh_dispatcher_t dispatcher;
     bevh_timer_mgr_t timer_mgr;
-
-    bevh_event_t *event_buffer;
-    bevh_count_t event_capacity;
-
-    bevh_handler_entry_t *handler_buffer;
-    bevh_count_t handler_capacity;
-
-    bevh_timer_t *timer_buffer;
-    bevh_count_t timer_capacity;
 
     bool initialized;
 } bevh_t;
@@ -729,12 +778,31 @@ bevh_status_t bevh_subscribe(bevh_t *ctx,
                              bevh_event_handler_t handler,
                              void *user);
 
+bevh_status_t bevh_unsubscribe(bevh_t *ctx,
+                               bevh_event_id_t event_id,
+                               bevh_event_handler_t handler,
+                               void *user);
+
+bevh_status_t bevh_subscribe_table(bevh_t *ctx,
+                                   const bevh_handler_entry_t *table,
+                                   bevh_count_t count);
+
+bevh_status_t bevh_start_timer(bevh_t *ctx,
+                               const bevh_timer_config_t *cfg);
+
+bevh_status_t bevh_stop_timer(bevh_t *ctx,
+                              bevh_timer_id_t timer_id);
+
+bevh_status_t bevh_restart_timer(bevh_t *ctx,
+                                 bevh_timer_id_t timer_id);
+
 void bevh_tick(bevh_t *ctx,
                bevh_tick_t elapsed_ticks);
 
-void bevh_run_once(bevh_t *ctx);
+bevh_status_t bevh_run_once(bevh_t *ctx);
 
-void bevh_run(bevh_t *ctx);
+bevh_status_t bevh_run(bevh_t *ctx,
+                       bevh_count_t *processed_count);
 ```
 
 ## Required Behavior
@@ -743,12 +811,14 @@ void bevh_run(bevh_t *ctx);
 
 1. Pop at most one event from the queue.
 2. Dispatch it if one was available.
-3. Return immediately.
+3. Return the actual processing status.
 
 `bevh_run()` may:
 
-1. Continuously pop and dispatch until the queue is empty.
-2. Return when no event remains.
+1. Pop and dispatch until the queue is empty when `BEVH_RUN_MAX_EVENTS_PER_CALL == 0u`.
+2. Process at most `BEVH_RUN_MAX_EVENTS_PER_CALL` events when the limit is nonzero.
+3. Optionally report the number of successfully dispatched events through `processed_count`.
+4. Return `BEVH_OK` when the queue becomes empty or the configured budget is reached.
 
 Do not implement an infinite loop inside `bevh_run()`. The application owns the main loop.
 
@@ -885,7 +955,7 @@ int main(void)
     app_init();
 
     while (1) {
-        bevh_run(&g_bevh);
+        bevh_run(&g_bevh, NULL);
         app_background();
     }
 }
@@ -930,7 +1000,7 @@ Each project using `bevh` must:
 5. Register event handlers using `bevh_subscribe()`.
 6. Post events from ISR or main context.
 7. Call `bevh_tick()` from a hardware timebase if software timers are used.
-8. Call `bevh_run()` or `bevh_run_once()` from the main loop.
+8. Call `bevh_run()` or `bevh_run_once()` from the main loop and handle non-OK errors according to project policy.
 
 ## Minimal Project Event Definition
 
@@ -1126,15 +1196,19 @@ Codex should create simple test cases or examples proving:
 
 - one-shot timer posts event once
 - periodic timer posts repeatedly
+- timer IDs are matched by ID, not by array index
 - stopped timer does not post event
 - timer expiration posts to queue, not directly to handler
+- catch-up disabled posts at most one event per periodic timer per tick call
+- catch-up enabled is bounded by `BEVH_TIMER_MAX_CATCHUP_EVENTS`
 
 ## Core
 
 - `bevh_init()` initializes queue, dispatcher, and timer manager
 - `bevh_post()` places an event in the queue
-- `bevh_run_once()` dispatches one event only
-- `bevh_run()` drains the queue and returns
+- `bevh_run_once()` dispatches one event only and returns status
+- `bevh_run()` drains the queue or respects `BEVH_RUN_MAX_EVENTS_PER_CALL`
+- `bevh_run()` reports processed event count when requested
 
 ---
 

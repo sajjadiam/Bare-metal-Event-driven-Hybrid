@@ -147,8 +147,7 @@ bevh_status_t bevh_event_queue_init(bevh_event_queue_t *q,
  * @retval BEVH_ERR_NOT_INITIALIZED @p q was not initialized.
  * @retval BEVH_ERR_FULL Queue was full and the event was dropped.
  */
-bevh_status_t bevh_event_push(bevh_event_queue_t *q,
-                              const bevh_event_t *event);
+bevh_status_t bevh_event_push(bevh_event_queue_t *q, const bevh_event_t *event);
 
 /**
  * @brief Push an event into the queue from ISR context.

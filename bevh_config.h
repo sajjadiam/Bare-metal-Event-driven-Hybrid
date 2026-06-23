@@ -113,23 +113,37 @@ extern "C" {
  * When set to 0, zero-delay timers are rejected as invalid arguments. This
  * avoids accidental event storms. If an immediate event is needed, post it
  * directly instead of starting a zero-delay timer.
+ *
+ * Even when this is set to 1, zero-delay periodic timers are invalid because
+ * they would create an unbounded expiration stream.
  */
 #ifndef BEVH_TIMER_ALLOW_ZERO_DELAY
 #define BEVH_TIMER_ALLOW_ZERO_DELAY 0u
 #endif
 
 /**
+ * @def BEVH_TIMER_ENABLE_CATCHUP
+ * @brief Enable bounded catch-up posting for periodic software timers.
+ *
+ * When set to 0, each periodic timer posts at most one expiration event per
+ * bevh_timer_tick() call. Extra elapsed periods are coalesced into the timer's
+ * missed-count state.
+ *
+ * When set to 1, each periodic timer may post multiple catch-up events per
+ * bevh_timer_tick() call, bounded by @ref BEVH_TIMER_MAX_CATCHUP_EVENTS.
+ */
+#ifndef BEVH_TIMER_ENABLE_CATCHUP
+#define BEVH_TIMER_ENABLE_CATCHUP 0u
+#endif
+
+/**
  * @def BEVH_TIMER_MAX_CATCHUP_EVENTS
- * @brief Maximum expiration events posted per periodic timer per tick call.
+ * @brief Maximum expiration events posted per periodic timer per tick call when
+ * catch-up is enabled.
  *
- * When a periodic timer is advanced by a large elapsed tick value, more than one
- * period may have expired. This limit bounds how many events one timer may post
- * during a single bevh_timer_tick() call. Extra expirations are coalesced and
- * tracked by the timer implementation.
- *
- * The value must be greater than zero. A value of 1 keeps queue pressure low by
- * posting at most one event per timer per tick call. Larger values reduce
- * catch-up latency but can fill the event queue faster.
+ * This value is used only when @ref BEVH_TIMER_ENABLE_CATCHUP is 1. It must be
+ * greater than zero. Larger values reduce catch-up latency but can fill the
+ * event queue faster.
  */
 #ifndef BEVH_TIMER_MAX_CATCHUP_EVENTS
 #define BEVH_TIMER_MAX_CATCHUP_EVENTS 4u

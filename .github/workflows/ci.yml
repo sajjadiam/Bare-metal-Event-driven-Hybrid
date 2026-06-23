@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  host-tests:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Show compiler
+        run: gcc --version
+
+      - name: Syntax check core
+        run: |
+          gcc -std=c99 -Wall -Wextra -Werror -I. -fsyntax-only bevh_event_queue.c
+          gcc -std=c99 -Wall -Wextra -Werror -I. -fsyntax-only bevh_dispatcher.c
+          gcc -std=c99 -Wall -Wextra -Werror -I. -fsyntax-only bevh_timer.c
+          gcc -std=c99 -Wall -Wextra -Werror -I. -fsyntax-only bevh.c
+          gcc -std=c99 -Wall -Wextra -Werror -I. -fsyntax-only tests/target/bevh_target_bench.c
+
+      - name: Build and run host tests
+        run: |
+          gcc -std=c99 -O2 -Wall -Wextra -Werror -I. \
+            tests/bevh_host_test.c \
+            bevh_event_queue.c bevh_dispatcher.c bevh_timer.c bevh.c \
+            -o /tmp/bevh_host_test_default
+          /tmp/bevh_host_test_default
+
+      - name: Build and run host tests with timer catch-up
+        run: |
+          gcc -std=c99 -O2 -Wall -Wextra -Werror -I. \
+            -DBEVH_TIMER_ENABLE_CATCHUP=1 \
+            tests/bevh_host_test.c \
+            bevh_event_queue.c bevh_dispatcher.c bevh_timer.c bevh.c \
+            -o /tmp/bevh_host_test_catchup
+          /tmp/bevh_host_test_catchup

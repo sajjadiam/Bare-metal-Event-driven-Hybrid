@@ -1,0 +1,10 @@
+*.exe
+*.o
+*.obj
+*.out
+*.elf
+*.map
+*.bin
+*.hex
+build/
+cmake-build-*/
