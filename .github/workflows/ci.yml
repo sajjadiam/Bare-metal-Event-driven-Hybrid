@@ -39,3 +39,9 @@ jobs:
             bevh_event_queue.c bevh_dispatcher.c bevh_timer.c bevh.c \
             -o /tmp/bevh_host_test_catchup
           /tmp/bevh_host_test_catchup
+
+      - name: Compile-check ARMv6-M structure layout
+        run: |
+          clang --version
+          clang -target armv6m-none-eabi -mthumb -std=c11 -Wall -Wextra -Werror -I. \
+            -c tests/bevh_layout_arm.c -o /tmp/bevh_layout_arm.o

@@ -54,13 +54,6 @@ extern "C" {
  * manager API.
  */
 typedef struct {
-    /**
-     * @brief Application-defined timer identifier.
-     *
-     * Timer IDs are unique within one timer manager. A cleared or unused timer
-     * slot has @ref BEVH_TIMER_ID_NONE.
-     */
-    bevh_timer_id_t id;
 
     /**
      * @brief Ticks remaining before the timer expires.
@@ -74,16 +67,6 @@ typedef struct {
      * this is the reload value after expiration.
      */
     bevh_tick_t period_ticks;
-
-    /**
-     * @brief Event ID posted when the timer expires.
-     */
-    bevh_event_id_t event_id;
-
-    /**
-     * @brief Source ID stored in the generated event.
-     */
-    bevh_source_id_t source;
 
     /**
      * @brief Lightweight parameter stored in the generated event.
@@ -112,6 +95,23 @@ typedef struct {
      * needed.
      */
     uint32_t missed_count;
+    /**
+     * @brief Application-defined timer identifier.
+     *
+     * Timer IDs are unique within one timer manager. A cleared or unused timer
+     * slot has @ref BEVH_TIMER_ID_NONE.
+     */
+    bevh_timer_id_t id;
+
+    /**
+     * @brief Event ID posted when the timer expires.
+     */
+    bevh_event_id_t event_id;
+
+    /**
+     * @brief Source ID stored in the generated event.
+     */
+    bevh_source_id_t source;
 
     /**
      * @brief True for periodic timers, false for one-shot timers.
@@ -136,12 +136,6 @@ typedef struct {
  * argument lists and reduce accidental parameter swaps in application code.
  */
 typedef struct {
-    /**
-     * @brief Application-defined timer identifier.
-     *
-     * Must not be @ref BEVH_TIMER_ID_NONE.
-     */
-    bevh_timer_id_t timer_id;
 
     /**
      * @brief Delay before expiration in application-defined ticks.
@@ -152,9 +146,20 @@ typedef struct {
     bevh_tick_t delay_ticks;
 
     /**
-     * @brief True for periodic timer, false for one-shot timer.
+     * @brief Lightweight parameter stored in generated events.
      */
-    bool periodic;
+    bevh_param_t param;
+
+    /**
+     * @brief Optional application-owned data pointer stored in generated events.
+     */
+    void *data;
+    /**
+     * @brief Application-defined timer identifier.
+     *
+     * Must not be @ref BEVH_TIMER_ID_NONE.
+     */
+    bevh_timer_id_t timer_id;
 
     /**
      * @brief Event ID posted when the timer expires.
@@ -169,14 +174,9 @@ typedef struct {
     bevh_source_id_t source;
 
     /**
-     * @brief Lightweight parameter stored in generated events.
+     * @brief True for periodic timer, false for one-shot timer.
      */
-    bevh_param_t param;
-
-    /**
-     * @brief Optional application-owned data pointer stored in generated events.
-     */
-    void *data;
+    bool periodic;
 } bevh_timer_config_t;
 
 /**
@@ -201,14 +201,14 @@ typedef struct {
     bevh_timer_t *timers;
 
     /**
-     * @brief Number of timer entries in @ref timers.
-     */
-    bevh_count_t capacity;
-
-    /**
      * @brief Queue used for posting timer expiration events.
      */
     bevh_event_queue_t *queue;
+
+    /**
+     * @brief Number of timer entries in @ref timers.
+     */
+    bevh_count_t capacity;
 
     /**
      * @brief True after successful initialization.

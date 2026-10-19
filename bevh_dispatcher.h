@@ -52,10 +52,6 @@ typedef void (*bevh_event_handler_t)(const bevh_event_t *event, void *user);
  * same event.
  */
 typedef struct {
-    /**
-     * @brief Event ID matched by this entry.
-     */
-    bevh_event_id_t event_id;
 
     /**
      * @brief Handler called when a matching event is dispatched.
@@ -66,6 +62,10 @@ typedef struct {
      * @brief User pointer passed to @ref handler.
      */
     void *user;
+    /**
+     * @brief Event ID matched by this entry.
+     */
+    bevh_event_id_t event_id;
 
     /**
      * @brief True when this entry is occupied.

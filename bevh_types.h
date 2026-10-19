@@ -35,7 +35,7 @@ extern "C" {
  *
  * Increment this when backward-compatible features are added.
  */
-#define BEVH_VERSION_MINOR    1u
+#define BEVH_VERSION_MINOR    2u
 
 /**
  * @def BEVH_VERSION_PATCH

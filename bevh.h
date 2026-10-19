@@ -74,31 +74,14 @@ typedef struct {
     bevh_event_t *event_buffer;
 
     /**
-     * @brief Number of entries in @ref event_buffer.
-     *
-     * Must be a power of two because the event queue uses mask-based wrapping.
-     */
-    bevh_count_t event_capacity;
-
-    /**
      * @brief Dispatcher handler entry storage.
      */
     bevh_handler_entry_t *handler_buffer;
 
     /**
-     * @brief Number of entries in @ref handler_buffer.
-     */
-    bevh_count_t handler_capacity;
-
-    /**
      * @brief Software timer storage.
      */
     bevh_timer_t *timer_buffer;
-
-    /**
-     * @brief Number of entries in @ref timer_buffer.
-     */
-    bevh_count_t timer_capacity;
 
     /**
      * @brief Critical-section callbacks used by the event queue.
@@ -107,6 +90,23 @@ typedef struct {
      * critical sections are not allowed by configuration.
      */
     bevh_critical_t critical;
+
+    /**
+     * @brief Number of entries in @ref event_buffer.
+     *
+     * Must be a power of two because the event queue uses mask-based wrapping.
+     */
+    bevh_count_t event_capacity;
+
+    /**
+     * @brief Number of entries in @ref handler_buffer.
+     */
+    bevh_count_t handler_capacity;
+
+    /**
+     * @brief Number of entries in @ref timer_buffer.
+     */
+    bevh_count_t timer_capacity;
 } bevh_config_runtime_t;
 
 /**

@@ -226,8 +226,8 @@ static void test_core(void) {
     bevh_count_t processed = 0u;
     bevh_event_t event;
     const bevh_handler_entry_t routes[] = {
-        {TEST_EVT_A, test_handler_a, &stats, true},
-        {TEST_EVT_B, test_handler_b, &stats, true}
+        { .handler = test_handler_a, .user = &stats, .event_id = TEST_EVT_A, .used = true },
+        { .handler = test_handler_b, .user = &stats, .event_id = TEST_EVT_B, .used = true }
     };
 
     cfg.event_buffer = event_buffer;
