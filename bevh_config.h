@@ -154,11 +154,12 @@ extern "C" {
  * @brief Maximum number of events processed by bevh_run() per call.
  *
  * A value of 0 means bevh_run() drains the queue and returns when it is empty.
- * A nonzero value bounds work per call, which can help keep a cooperative main
- * loop responsive.
+ * A nonzero value bounds work per call. The furnace controller uses four
+ * events so background traffic cannot monopolize one cooperative main-loop
+ * pass.
  */
 #ifndef BEVH_RUN_MAX_EVENTS_PER_CALL
-#define BEVH_RUN_MAX_EVENTS_PER_CALL 0u
+#define BEVH_RUN_MAX_EVENTS_PER_CALL 4u
 #endif
 
 #ifdef __cplusplus

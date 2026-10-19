@@ -114,6 +114,11 @@ static void test_queue(void) {
     test_expect(bevh_event_push(&queue, &event) == BEVH_ERR_FULL, "queue reports full");
     test_expect(bevh_event_queue_overflow_count(&queue) == 1u, "queue overflow counter increments");
     test_expect(bevh_event_queue_max_used(&queue) == 4u, "queue max used reaches capacity");
+    queue.overflow_count = UINT32_MAX;
+    test_expect(bevh_event_push(&queue, &event) == BEVH_ERR_FULL,
+                "queue still reports full at saturated overflow count");
+    test_expect(bevh_event_queue_overflow_count(&queue) == UINT32_MAX,
+                "queue overflow counter saturates instead of wrapping");
 
     for(bevh_param_t i = 0u; i < 4u; i++) {
         test_expect(bevh_event_pop(&queue, &popped) == BEVH_OK, "queue pop succeeds");
@@ -128,7 +133,7 @@ static void test_queue(void) {
     test_expect(bevh_event_push_isr(&queue, &event) == BEVH_OK, "ISR push succeeds");
     bevh_event_queue_clear(&queue);
     test_expect(bevh_event_queue_count(&queue) == 0u, "queue clear resets count");
-    test_expect(bevh_event_queue_overflow_count(&queue) == 1u,
+    test_expect(bevh_event_queue_overflow_count(&queue) == UINT32_MAX,
                 "queue clear preserves overflow diagnostics");
 }
 
@@ -219,7 +224,7 @@ static void test_core(void) {
     bevh_critical_t critical = test_make_critical(&critical_stats);
     bevh_config_runtime_t cfg;
     bevh_count_t processed = 0u;
-    bevh_event_t event = test_make_event(TEST_EVT_A, 77u);
+    bevh_event_t event;
     const bevh_handler_entry_t routes[] = {
         {TEST_EVT_A, test_handler_a, &stats, true},
         {TEST_EVT_B, test_handler_b, &stats, true}
@@ -236,11 +241,30 @@ static void test_core(void) {
     test_expect(bevh_init(&ctx, &cfg) == BEVH_OK, "core init succeeds");
     test_expect(bevh_subscribe_table(&ctx, routes, (bevh_count_t)(sizeof(routes) / sizeof(routes[0]))) == BEVH_OK,
                 "core subscribe table succeeds");
-    test_expect(bevh_post(&ctx, &event) == BEVH_OK, "core post succeeds");
+    for(bevh_param_t i = 0u; i < 8u; i++) {
+        event = test_make_event(TEST_EVT_A, i);
+        test_expect(bevh_post(&ctx, &event) == BEVH_OK,
+                    "core post succeeds");
+    }
     test_expect(bevh_run(&ctx, &processed) == BEVH_OK, "core run succeeds");
-    test_expect(processed == 1u, "core run reports processed count");
-    test_expect((stats.calls_a == 1u) && (stats.last_param == 77u), "core dispatches posted event");
+    test_expect(processed == BEVH_RUN_MAX_EVENTS_PER_CALL,
+                "core run enforces configured event budget");
+    test_expect(bevh_event_queue_count(&ctx.queue) == 4u,
+                "core run leaves excess events queued");
+    test_expect((stats.calls_a == 4u) && (stats.last_param == 3u),
+                "core dispatches first budget in FIFO order");
+    processed = 0u;
+    test_expect(bevh_run(&ctx, &processed) == BEVH_OK,
+                "second core run succeeds");
+    test_expect(processed == 4u, "second core run drains remainder");
+    test_expect((stats.calls_a == 8u) && (stats.last_param == 7u),
+                "second core run preserves FIFO order");
     test_expect(bevh_run_once(&ctx) == BEVH_ERR_EMPTY, "core run_once reports empty queue");
+    processed = 123u;
+    test_expect(bevh_run(&ctx, &processed) == BEVH_OK,
+                "bounded core run returns on an empty queue");
+    test_expect(processed == 0u,
+                "bounded empty core run reports zero processed events");
 }
 
 static double test_seconds_since(clock_t start, clock_t end) {

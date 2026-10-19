@@ -201,12 +201,15 @@ bevh_status_t bevh_run(bevh_t *ctx, bevh_count_t *processed_count) {
     }
 #else
     status = BEVH_OK;
-    while((processed < BEVH_RUN_MAX_EVENTS_PER_CALL) && (status == BEVH_OK)) {
+    while(processed < BEVH_RUN_MAX_EVENTS_PER_CALL) {
         status = bevh_process_one(ctx);
         if(status == BEVH_OK) {
             processed++;
         } else if(status == BEVH_ERR_EMPTY) {
             status = BEVH_OK;
+            break;
+        } else {
+            break;
         }
     }
 #endif

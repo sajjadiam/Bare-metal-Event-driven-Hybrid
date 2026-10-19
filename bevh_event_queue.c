@@ -1,5 +1,7 @@
 #include "bevh_event_queue.h"
 
+#include <stdint.h>
+
 static bool bevh_event_queue_critical_is_valid(const bevh_event_queue_t *q) {
 #if BEVH_ENABLE_CRITICAL
     return bevh_critical_is_valid(&q->critical);
@@ -159,7 +161,9 @@ static bevh_status_t bevh_event_queue_push_common(bevh_event_queue_t *q, const b
     bevh_critical_state_t state = bevh_event_queue_lock(q);
 
     if(q->count == q->capacity) {
-        q->overflow_count++;
+        if(q->overflow_count < UINT32_MAX) {
+            q->overflow_count++;
+        }
         bevh_event_queue_unlock(q, state);
         return BEVH_ERR_FULL;
     }
